@@ -6,23 +6,13 @@
     <title>自動化商店訂單系統</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome (圖示庫，讓介面更美觀) -->
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* 自訂滾動條樣式 */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f5f9;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased">
@@ -37,7 +27,7 @@
                 <h1 class="text-xl font-bold text-slate-900 tracking-tight">自動化商店訂單系統</h1>
             </div>
             <div class="text-sm text-slate-500 hidden sm:block">
-                GAS 商品同步 &bull; n8n 自動化接單
+                GAS 庫存同步 &bull; n8n 自動化接單
             </div>
         </div>
     </header>
@@ -69,12 +59,12 @@
                         <i class="fa-solid fa-boxes-stacked text-indigo-600"></i>
                         精選商品列表
                     </h2>
-                    <button onclick="fetchProducts()" class="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium transition">
-                        <i class="fa-solid fa-rotate-right"></i> 重新整理
+                    <button onclick="fetchProducts()" class="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium transition cursor-pointer">
+                        <i class="fa-solid fa-rotate-right"></i> 同步最新庫存
                     </button>
                 </div>
 
-                <!-- 載入中骨架屏 / Loading 狀態 -->
+                <!-- 載入中骨架屏 -->
                 <div id="products-loading" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 animate-pulse">
                         <div class="bg-slate-200 h-44 rounded-xl mb-4"></div>
@@ -91,9 +81,7 @@
                 </div>
 
                 <!-- 商品卡片網格 -->
-                <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-6 hidden">
-                    <!-- 商品卡片將由 JS 動態生成 -->
-                </div>
+                <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-6 hidden"></div>
             </section>
 
             <!-- 右側 / 下方：即時購物車與結帳表單 (佔 5 欄) -->
@@ -106,19 +94,17 @@
                         購物車清單
                         <span id="cart-badge" class="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-0.5 rounded-full">0</span>
                     </h2>
-                    <button id="clear-cart-btn" onclick="clearCart()" class="text-xs text-rose-500 hover:text-rose-700 hidden font-medium">
+                    <button id="clear-cart-btn" onclick="clearCart()" class="text-xs text-rose-500 hover:text-rose-700 hidden font-medium cursor-pointer">
                         清空全部
                     </button>
                 </div>
 
                 <!-- 購物車項目列表 -->
                 <div id="cart-items-container" class="max-h-64 overflow-y-auto space-y-3 pr-1">
-                    <!-- 空購物車提示 -->
                     <div id="empty-cart-msg" class="text-center py-8 text-slate-400">
                         <i class="fa-solid fa-basket-shopping text-4xl mb-2 opacity-50"></i>
                         <p class="text-sm">購物車目前是空的，快去挑選商品吧！</p>
                     </div>
-                    <!-- 購物車項目由 JS 動態生成 -->
                 </div>
 
                 <!-- 總金額計算 -->
@@ -189,7 +175,7 @@
         // 2. 狀態管理
         // ==========================================
         let products = [];
-        let cart = []; // 結構: [{ id, name, price, image, quantity }]
+        let cart = []; // 結構: [{ id, name, price, stock, quantity }]
 
         // ==========================================
         // 3. 初始化與商品讀取 (GAS)
@@ -197,6 +183,16 @@
         document.addEventListener('DOMContentLoaded', () => {
             fetchProducts();
         });
+
+        // 輔助函式：從物件中依序尋找符合的欄位值（避免 0 被誤判為 falsy）
+        function getFieldValue(item, possibleKeys, defaultValue) {
+            for (const key of possibleKeys) {
+                if (item[key] !== undefined && item[key] !== null && item[key] !== '') {
+                    return item[key];
+                }
+            }
+            return defaultValue;
+        }
 
         async function fetchProducts() {
             const loadingEl = document.getElementById('products-loading');
@@ -214,19 +210,42 @@
                 
                 const rawData = await response.json();
                 
-                // 兼容常見的 GAS 回傳格式（直接是陣列，或是包在 data / products 屬性裡）
+                // 處理 GAS 內建防呆回傳的錯誤訊息
+                if (rawData.status === 'error') {
+                    throw new Error(rawData.message || 'GAS 回傳未知錯誤');
+                }
+                
                 const itemsArray = Array.isArray(rawData) ? rawData : (rawData.data || rawData.products || []);
                 
-                // 標準化商品欄位名稱（兼容中英文欄位）
-                products = itemsArray.map((item, index) => ({
-                    id: item.id || item.ID || item['商品編號'] || `prod_${index + 1}`,
-                    name: item.name || item.title || item['商品名稱'] || `未命名商品 ${index + 1}`,
-                    price: Number(item.price || item['價格'] || item['單價'] || 0),
-                    description: item.description || item.desc || item['商品描述'] || '精選優質商品，立即加入購物車！',
-                    image: item.image || item.img || item['圖片'] || `https://placehold.co/400x300/e2e8f0/475569?text=${encodeURIComponent(item.name || 'Product')}`
-                }));
+                // 標準化商品欄位名稱（加入完整庫存欄位對應）
+                products = itemsArray.map((item, index) => {
+                    const name = getFieldValue(item, ['name', 'title', '商品名稱', '品名'], `未命名商品 ${index + 1}`);
+                    const rawStock = getFieldValue(item, ['stock', 'inventory', 'qty', 'quantity', '庫存', '庫存量', '剩餘庫存', '數量'], 99);
+                    
+                    return {
+                        id: getFieldValue(item, ['id', 'ID', '商品編號', '編號'], `prod_${index + 1}`),
+                        name: name,
+                        price: Number(getFieldValue(item, ['price', '價格', '單價', '售價'], 0)),
+                        stock: Math.max(0, parseInt(rawStock, 10) || 0),
+                        description: getFieldValue(item, ['description', 'desc', '商品描述', '說明', '備註'], '精選優質商品，立即加入購物車！'),
+                        image: getFieldValue(item, ['image', 'img', '圖片', '圖片網址'], `https://placehold.co/400x300/e2e8f0/475569?text=${encodeURIComponent(name)}`)
+                    };
+                });
+
+                // 同步更新購物車內的庫存上限
+                cart.forEach(cartItem => {
+                    const latestProduct = products.find(p => String(p.id) === String(cartItem.id));
+                    if (latestProduct) {
+                        cartItem.stock = latestProduct.stock;
+                        if (cartItem.quantity > latestProduct.stock) {
+                            cartItem.quantity = latestProduct.stock;
+                        }
+                    }
+                });
+                cart = cart.filter(item => item.quantity > 0);
 
                 renderProducts();
+                renderCart();
             } catch (error) {
                 console.error('讀取商品失敗:', error);
                 showAlert('error', '無法載入商品資料', `連線至 Google Apps Script 發生錯誤：${error.message}`);
@@ -249,13 +268,24 @@
                 return;
             }
 
-            gridEl.innerHTML = products.map(product => `
-                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition flex flex-col justify-between group">
+            gridEl.innerHTML = products.map(product => {
+                const isOutOfStock = product.stock <= 0;
+                const stockBadgeClass = isOutOfStock 
+                    ? 'bg-rose-100 text-rose-700' 
+                    : (product.stock <= 5 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700');
+                const stockText = isOutOfStock ? '已售完' : `剩餘庫存：${product.stock} 件`;
+
+                return `
+                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition flex flex-col justify-between group ${isOutOfStock ? 'opacity-75' : ''}">
                     <div>
                         <div class="relative h-48 bg-slate-100 overflow-hidden">
                             <img src="${product.image}" alt="${product.name}" 
                                  onerror="this.src='https://placehold.co/400x300/e2e8f0/475569?text=No+Image'"
-                                 class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                                 class="w-full h-full object-cover ${isOutOfStock ? 'grayscale' : 'group-hover:scale-105'} transition duration-300">
+                            <!-- 庫存狀態標籤 -->
+                            <span class="absolute top-3 right-3 text-xs font-bold px-2.5 py-1 rounded-full shadow-sm ${stockBadgeClass}">
+                                ${stockText}
+                            </span>
                         </div>
                         <div class="p-5">
                             <div class="flex justify-between items-start gap-2 mb-2">
@@ -266,30 +296,36 @@
                         </div>
                     </div>
                     <div class="px-5 pb-5">
-                        <button onclick="addToCart('${product.id}')" 
-                            class="w-full bg-slate-900 hover:bg-indigo-600 text-white font-medium py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm cursor-pointer">
-                            <i class="fa-solid fa-cart-plus"></i> 加入購物車
+                        <button onclick="addToCart('${product.id}')" ${isOutOfStock ? 'disabled' : ''}
+                            class="w-full ${isOutOfStock ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 hover:bg-indigo-600 text-white cursor-pointer'} font-medium py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                            <i class="fa-solid ${isOutOfStock ? 'fa-ban' : 'fa-cart-plus'}"></i> 
+                            ${isOutOfStock ? '暫無庫存' : '加入購物車'}
                         </button>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // ==========================================
-        // 4. 購物車操作邏輯
+        // 4. 購物車操作邏輯（含庫存上限檢查）
         // ==========================================
         function addToCart(productId) {
             const product = products.find(p => String(p.id) === String(productId));
-            if (!product) return;
+            if (!product || product.stock <= 0) return;
 
             const existingItem = cart.find(item => String(item.id) === String(productId));
             if (existingItem) {
+                if (existingItem.quantity >= product.stock) {
+                    showAlert('error', '已達庫存上限', `「${product.name}」目前僅剩 ${product.stock} 件庫存，無法再增加數量。`);
+                    return;
+                }
                 existingItem.quantity += 1;
             } else {
                 cart.push({
                     id: product.id,
                     name: product.name,
                     price: product.price,
+                    stock: product.stock,
                     quantity: 1
                 });
             }
@@ -300,9 +336,18 @@
             const itemIndex = cart.findIndex(item => String(item.id) === String(productId));
             if (itemIndex === -1) return;
 
-            cart[itemIndex].quantity += delta;
-            if (cart[itemIndex].quantity <= 0) {
+            const item = cart[itemIndex];
+            const newQty = item.quantity + delta;
+
+            if (newQty > item.stock) {
+                showAlert('error', '已達庫存上限', `「${item.name}」目前僅剩 ${item.stock} 件庫存。`);
+                return;
+            }
+
+            if (newQty <= 0) {
                 cart.splice(itemIndex, 1);
+            } else {
+                item.quantity = newQty;
             }
             renderCart();
         }
@@ -323,7 +368,6 @@
             const totalEl = document.getElementById('cart-total');
             const clearBtn = document.getElementById('clear-cart-btn');
 
-            // 計算總數量與總金額
             const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
             const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -342,24 +386,30 @@
             }
 
             clearBtn.classList.remove('hidden');
-            container.innerHTML = cart.map(item => `
+            container.innerHTML = cart.map(item => {
+                const isMaxStock = item.quantity >= item.stock;
+                return `
                 <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div class="flex-1 min-w-0 pr-3">
-                        <h4 class="font-bold text-slate-800 text-sm truncate">${item.name}</h4>
+                        <div class="flex items-center gap-2">
+                            <h4 class="font-bold text-slate-800 text-sm truncate">${item.name}</h4>
+                            <span class="text-[11px] text-slate-400 whitespace-nowrap">(庫存:${item.stock})</span>
+                        </div>
                         <p class="text-xs text-slate-500 mt-0.5">NT$ ${item.price.toLocaleString()} &times; ${item.quantity} = <span class="font-semibold text-indigo-600">NT$ ${(item.price * item.quantity).toLocaleString()}</span></p>
                     </div>
                     <div class="flex items-center gap-2">
                         <div class="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden">
-                            <button type="button" onclick="updateQuantity('${item.id}', -1)" class="px-2 py-1 text-slate-600 hover:bg-slate-100 text-xs font-bold transition">-</button>
+                            <button type="button" onclick="updateQuantity('${item.id}', -1)" class="px-2 py-1 text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer">-</button>
                             <span class="px-2 text-xs font-bold text-slate-800">${item.quantity}</span>
-                            <button type="button" onclick="updateQuantity('${item.id}', 1)" class="px-2 py-1 text-slate-600 hover:bg-slate-100 text-xs font-bold transition">+</button>
+                            <button type="button" onclick="updateQuantity('${item.id}', 1)" ${isMaxStock ? 'disabled' : ''} 
+                                class="px-2 py-1 text-xs font-bold transition ${isMaxStock ? 'text-slate-300 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-100 cursor-pointer'}">+</button>
                         </div>
-                        <button type="button" onclick="removeFromCart('${item.id}')" title="移除商品" class="text-slate-400 hover:text-rose-500 p-1 transition">
+                        <button type="button" onclick="removeFromCart('${item.id}')" title="移除商品" class="text-slate-400 hover:text-rose-500 p-1 transition cursor-pointer">
                             <i class="fa-solid fa-trash-can text-sm"></i>
                         </button>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // ==========================================
@@ -368,13 +418,11 @@
         document.getElementById('checkout-form').addEventListener('submit', async function(e) {
             e.preventDefault();
 
-            // 檢查購物車是否為空
             if (cart.length === 0) {
                 showAlert('error', '無法送出訂單', '您的購物車目前沒有任何商品，請先加入商品後再結帳。');
                 return;
             }
 
-            // 取得表單資料
             const customer = {
                 name: document.getElementById('customer-name').value.trim(),
                 phone: document.getElementById('customer-phone').value.trim(),
@@ -384,7 +432,6 @@
 
             const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
-            // 打包傳送給 n8n 的 JSON 資料
             const orderPayload = {
                 orderTime: new Date().toISOString(),
                 customer: customer,
@@ -398,20 +445,16 @@
                 totalAmount: totalAmount
             };
 
-            // 切換按鈕為載入中狀態
             setSubmitLoading(true);
             hideAlert();
 
             try {
                 const response = await fetch(N8N_WEBHOOK_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(orderPayload)
                 });
 
-                // 嘗試解析 n8n Respond to Webhook 回傳的 JSON
                 let resultData = {};
                 const contentType = response.headers.get('content-type');
                 if (contentType && contentType.includes('application/json')) {
@@ -421,14 +464,21 @@
                     resultData = { message: text || '訂單已成功送出！' };
                 }
 
-                // 判斷 HTTP 狀態碼與回傳的 status 欄位
                 if (!response.ok || resultData.status === 'error') {
                     throw new Error(resultData.message || `伺服器回應錯誤 (狀態碼: ${response.status})`);
                 }
 
-                // 成功處理：讀取後端回傳訊息並顯示
                 const successMessage = resultData.message || '訂單已成功送出！我們將盡快為您處理。';
                 showAlert('success', '訂單建立成功', successMessage);
+
+                // 即時扣減前端畫面顯示的庫存量
+                cart.forEach(orderedItem => {
+                    const prod = products.find(p => String(p.id) === String(orderedItem.id));
+                    if (prod) {
+                        prod.stock = Math.max(0, prod.stock - orderedItem.quantity);
+                    }
+                });
+                renderProducts();
 
                 // 清空購物車與表單
                 clearCart();
@@ -438,7 +488,6 @@
                 console.error('訂單送出失敗:', error);
                 showAlert('error', '訂單送出失敗', `無法連接至自動化系統或處理發生異常：${error.message}（請確認本地 n8n Webhook 處於監聽狀態且已設定 CORS）`);
             } finally {
-                // 恢復按鈕狀態
                 setSubmitLoading(false);
             }
         });
@@ -468,7 +517,6 @@
             const titleEl = document.getElementById('alert-title');
             const messageEl = document.getElementById('alert-message');
 
-            // 重置樣式
             box.className = 'p-4 rounded-xl border flex items-start justify-between shadow-sm transition-all duration-300';
             
             if (type === 'success') {
@@ -483,7 +531,6 @@
             messageEl.textContent = message;
             container.classList.remove('hidden');
 
-            // 自動滾動到頁面頂部讓使用者看到提示
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
