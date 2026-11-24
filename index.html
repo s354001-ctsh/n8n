@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自動化商店訂單系統</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome (圖示庫，讓介面更美觀) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* 自訂滾動條樣式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
+
+    <!-- 頂部導航列 -->
+    <header class="bg-white shadow-sm sticky top-0 z-30 border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="bg-indigo-600 text-white p-2 rounded-lg">
+                    <i class="fa-solid fa-store text-xl"></i>
+                </div>
+                <h1 class="text-xl font-bold text-slate-900 tracking-tight">自動化商店訂單系統</h1>
+            </div>
+            <div class="text-sm text-slate-500 hidden sm:block">
+                GAS 商品同步 &bull; n8n 自動化接單
+            </div>
+        </div>
+    </header>
+
+    <!-- 全域提示訊息區塊 (Alert) -->
+    <div id="alert-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 hidden">
+        <div id="alert-box" class="p-4 rounded-xl border flex items-start justify-between shadow-sm transition-all duration-300" role="alert">
+            <div class="flex items-center space-x-3">
+                <i id="alert-icon" class="text-xl"></i>
+                <div>
+                    <h3 id="alert-title" class="font-bold text-sm"></h3>
+                    <p id="alert-message" class="text-sm mt-0.5"></p>
+                </div>
+            </div>
+            <button onclick="hideAlert()" class="text-current opacity-70 hover:opacity-100 focus:outline-none">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 主要內容區：RWD 雙欄排版 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            <!-- 左側 / 上方：商品列表區 (佔 7 欄) -->
+            <section class="lg:col-span-7 space-y-6">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <i class="fa-solid fa-boxes-stacked text-indigo-600"></i>
+                        精選商品列表
+                    </h2>
+                    <button onclick="fetchProducts()" class="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium transition">
+                        <i class="fa-solid fa-rotate-right"></i> 重新整理
+                    </button>
+                </div>
+
+                <!-- 載入中骨架屏 / Loading 狀態 -->
+                <div id="products-loading" class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 animate-pulse">
+                        <div class="bg-slate-200 h-44 rounded-xl mb-4"></div>
+                        <div class="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
+                        <div class="h-4 bg-slate-200 rounded w-1/2 mb-4"></div>
+                        <div class="h-10 bg-slate-200 rounded-xl w-full"></div>
+                    </div>
+                    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 animate-pulse">
+                        <div class="bg-slate-200 h-44 rounded-xl mb-4"></div>
+                        <div class="h-5 bg-slate-200 rounded w-3/4 mb-2"></div>
+                        <div class="h-4 bg-slate-200 rounded w-1/2 mb-4"></div>
+                        <div class="h-10 bg-slate-200 rounded-xl w-full"></div>
+                    </div>
+                </div>
+
+                <!-- 商品卡片網格 -->
+                <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-6 hidden">
+                    <!-- 商品卡片將由 JS 動態生成 -->
+                </div>
+            </section>
+
+            <!-- 右側 / 下方：即時購物車與結帳表單 (佔 5 欄) -->
+            <aside class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 lg:sticky lg:top-24 space-y-6">
+                
+                <!-- 購物車標題與清空按鈕 -->
+                <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                        <i class="fa-solid fa-cart-shopping text-indigo-600"></i>
+                        購物車清單
+                        <span id="cart-badge" class="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-0.5 rounded-full">0</span>
+                    </h2>
+                    <button id="clear-cart-btn" onclick="clearCart()" class="text-xs text-rose-500 hover:text-rose-700 hidden font-medium">
+                        清空全部
+                    </button>
+                </div>
+
+                <!-- 購物車項目列表 -->
+                <div id="cart-items-container" class="max-h-64 overflow-y-auto space-y-3 pr-1">
+                    <!-- 空購物車提示 -->
+                    <div id="empty-cart-msg" class="text-center py-8 text-slate-400">
+                        <i class="fa-solid fa-basket-shopping text-4xl mb-2 opacity-50"></i>
+                        <p class="text-sm">購物車目前是空的，快去挑選商品吧！</p>
+                    </div>
+                    <!-- 購物車項目由 JS 動態生成 -->
+                </div>
+
+                <!-- 總金額計算 -->
+                <div class="bg-slate-50 rounded-xl p-4 border border-slate-100 flex items-center justify-between">
+                    <span class="text-slate-600 font-medium">訂單總金額</span>
+                    <div class="text-right">
+                        <span class="text-xs text-slate-400 mr-1">NT$</span>
+                        <span id="cart-total" class="text-2xl font-extrabold text-indigo-600">0</span>
+                    </div>
+                </div>
+
+                <!-- 結帳表單 -->
+                <form id="checkout-form" class="space-y-4 border-t border-slate-100 pt-5">
+                    <h3 class="text-base font-bold text-slate-900">訂購人資訊</h3>
+                    
+                    <div>
+                        <label for="customer-name" class="block text-sm font-medium text-slate-700 mb-1">
+                            姓名 <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="text" id="customer-name" name="name" required placeholder="請輸入真實姓名"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="customer-phone" class="block text-sm font-medium text-slate-700 mb-1">
+                            手機號碼 <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="tel" id="customer-phone" name="phone" required placeholder="例如：0912345678"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="customer-email" class="block text-sm font-medium text-slate-700 mb-1">
+                            電子郵件 <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="email" id="customer-email" name="email" required placeholder="用於接收訂單通知信"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="customer-note" class="block text-sm font-medium text-slate-700 mb-1">
+                            訂單備註
+                        </label>
+                        <textarea id="customer-note" name="note" rows="2" placeholder="有什麼特殊需求嗎？（選填）"
+                            class="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></textarea>
+                    </div>
+
+                    <!-- 送出按鈕 -->
+                    <button type="submit" id="submit-btn"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold py-3 px-4 rounded-xl shadow-sm transition flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed">
+                        <i id="submit-icon" class="fa-solid fa-paper-plane"></i>
+                        <span id="submit-text">確認送出訂單</span>
+                    </button>
+                </form>
+
+            </aside>
+        </div>
+    </main>
+
+    <script>
+        // ==========================================
+        // 1. API 端點設定
+        // ==========================================
+        const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbzpqXpBG9FPgEOFXkcQ_JbJez0zDGPRn1MOnSef1rTIH3V1Ul-h2277mVmuWHR7fxYP/exec';
+        const N8N_WEBHOOK_URL = 'http://localhost:5678/webhook-test/ctsh';
+
+        // ==========================================
+        // 2. 狀態管理
+        // ==========================================
+        let products = [];
+        let cart = []; // 結構: [{ id, name, price, image, quantity }]
+
+        // ==========================================
+        // 3. 初始化與商品讀取 (GAS)
+        // ==========================================
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchProducts();
+        });
+
+        async function fetchProducts() {
+            const loadingEl = document.getElementById('products-loading');
+            const gridEl = document.getElementById('products-grid');
+            
+            loadingEl.classList.remove('hidden');
+            gridEl.classList.add('hidden');
+            hideAlert();
+
+            try {
+                const response = await fetch(GAS_API_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP 錯誤！狀態碼: ${response.status}`);
+                }
+                
+                const rawData = await response.json();
+                
+                // 兼容常見的 GAS 回傳格式（直接是陣列，或是包在 data / products 屬性裡）
+                const itemsArray = Array.isArray(rawData) ? rawData : (rawData.data || rawData.products || []);
+                
+                // 標準化商品欄位名稱（兼容中英文欄位）
+                products = itemsArray.map((item, index) => ({
+                    id: item.id || item.ID || item['商品編號'] || `prod_${index + 1}`,
+                    name: item.name || item.title || item['商品名稱'] || `未命名商品 ${index + 1}`,
+                    price: Number(item.price || item['價格'] || item['單價'] || 0),
+                    description: item.description || item.desc || item['商品描述'] || '精選優質商品，立即加入購物車！',
+                    image: item.image || item.img || item['圖片'] || `https://placehold.co/400x300/e2e8f0/475569?text=${encodeURIComponent(item.name || 'Product')}`
+                }));
+
+                renderProducts();
+            } catch (error) {
+                console.error('讀取商品失敗:', error);
+                showAlert('error', '無法載入商品資料', `連線至 Google Apps Script 發生錯誤：${error.message}`);
+            } finally {
+                loadingEl.classList.add('hidden');
+                gridEl.classList.remove('hidden');
+            }
+        }
+
+        function renderProducts() {
+            const gridEl = document.getElementById('products-grid');
+            
+            if (products.length === 0) {
+                gridEl.innerHTML = `
+                    <div class="col-span-full bg-white rounded-2xl p-8 text-center text-slate-500 border border-slate-200">
+                        <i class="fa-solid fa-box-open text-4xl mb-3 text-slate-300"></i>
+                        <p>目前沒有上架中的商品。</p>
+                    </div>
+                `;
+                return;
+            }
+
+            gridEl.innerHTML = products.map(product => `
+                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-200 hover:shadow-md transition flex flex-col justify-between group">
+                    <div>
+                        <div class="relative h-48 bg-slate-100 overflow-hidden">
+                            <img src="${product.image}" alt="${product.name}" 
+                                 onerror="this.src='https://placehold.co/400x300/e2e8f0/475569?text=No+Image'"
+                                 class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                        </div>
+                        <div class="p-5">
+                            <div class="flex justify-between items-start gap-2 mb-2">
+                                <h3 class="font-bold text-slate-900 text-base line-clamp-1">${product.name}</h3>
+                                <span class="font-extrabold text-indigo-600 text-lg whitespace-nowrap">NT$ ${product.price.toLocaleString()}</span>
+                            </div>
+                            <p class="text-slate-500 text-sm line-clamp-2">${product.description}</p>
+                        </div>
+                    </div>
+                    <div class="px-5 pb-5">
+                        <button onclick="addToCart('${product.id}')" 
+                            class="w-full bg-slate-900 hover:bg-indigo-600 text-white font-medium py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm cursor-pointer">
+                            <i class="fa-solid fa-cart-plus"></i> 加入購物車
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ==========================================
+        // 4. 購物車操作邏輯
+        // ==========================================
+        function addToCart(productId) {
+            const product = products.find(p => String(p.id) === String(productId));
+            if (!product) return;
+
+            const existingItem = cart.find(item => String(item.id) === String(productId));
+            if (existingItem) {
+                existingItem.quantity += 1;
+            } else {
+                cart.push({
+                    id: product.id,
+                    name: product.name,
+                    price: product.price,
+                    quantity: 1
+                });
+            }
+            renderCart();
+        }
+
+        function updateQuantity(productId, delta) {
+            const itemIndex = cart.findIndex(item => String(item.id) === String(productId));
+            if (itemIndex === -1) return;
+
+            cart[itemIndex].quantity += delta;
+            if (cart[itemIndex].quantity <= 0) {
+                cart.splice(itemIndex, 1);
+            }
+            renderCart();
+        }
+
+        function removeFromCart(productId) {
+            cart = cart.filter(item => String(item.id) !== String(productId));
+            renderCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            renderCart();
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cart-items-container');
+            const badge = document.getElementById('cart-badge');
+            const totalEl = document.getElementById('cart-total');
+            const clearBtn = document.getElementById('clear-cart-btn');
+
+            // 計算總數量與總金額
+            const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+            const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+            badge.textContent = totalItems;
+            totalEl.textContent = totalAmount.toLocaleString();
+
+            if (cart.length === 0) {
+                clearBtn.classList.add('hidden');
+                container.innerHTML = `
+                    <div id="empty-cart-msg" class="text-center py-8 text-slate-400">
+                        <i class="fa-solid fa-basket-shopping text-4xl mb-2 opacity-50"></i>
+                        <p class="text-sm">購物車目前是空的，快去挑選商品吧！</p>
+                    </div>
+                `;
+                return;
+            }
+
+            clearBtn.classList.remove('hidden');
+            container.innerHTML = cart.map(item => `
+                <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <div class="flex-1 min-w-0 pr-3">
+                        <h4 class="font-bold text-slate-800 text-sm truncate">${item.name}</h4>
+                        <p class="text-xs text-slate-500 mt-0.5">NT$ ${item.price.toLocaleString()} &times; ${item.quantity} = <span class="font-semibold text-indigo-600">NT$ ${(item.price * item.quantity).toLocaleString()}</span></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden">
+                            <button type="button" onclick="updateQuantity('${item.id}', -1)" class="px-2 py-1 text-slate-600 hover:bg-slate-100 text-xs font-bold transition">-</button>
+                            <span class="px-2 text-xs font-bold text-slate-800">${item.quantity}</span>
+                            <button type="button" onclick="updateQuantity('${item.id}', 1)" class="px-2 py-1 text-slate-600 hover:bg-slate-100 text-xs font-bold transition">+</button>
+                        </div>
+                        <button type="button" onclick="removeFromCart('${item.id}')" title="移除商品" class="text-slate-400 hover:text-rose-500 p-1 transition">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ==========================================
+        // 5. 訂單送出與 n8n Webhook 回應處理
+        // ==========================================
+        document.getElementById('checkout-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // 檢查購物車是否為空
+            if (cart.length === 0) {
+                showAlert('error', '無法送出訂單', '您的購物車目前沒有任何商品，請先加入商品後再結帳。');
+                return;
+            }
+
+            // 取得表單資料
+            const customer = {
+                name: document.getElementById('customer-name').value.trim(),
+                phone: document.getElementById('customer-phone').value.trim(),
+                email: document.getElementById('customer-email').value.trim(),
+                note: document.getElementById('customer-note').value.trim()
+            };
+
+            const totalAmount = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+            // 打包傳送給 n8n 的 JSON 資料
+            const orderPayload = {
+                orderTime: new Date().toISOString(),
+                customer: customer,
+                items: cart.map(item => ({
+                    id: item.id,
+                    name: item.name,
+                    price: item.price,
+                    quantity: item.quantity,
+                    subtotal: item.price * item.quantity
+                })),
+                totalAmount: totalAmount
+            };
+
+            // 切換按鈕為載入中狀態
+            setSubmitLoading(true);
+            hideAlert();
+
+            try {
+                const response = await fetch(N8N_WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderPayload)
+                });
+
+                // 嘗試解析 n8n Respond to Webhook 回傳的 JSON
+                let resultData = {};
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    resultData = await response.json();
+                } else {
+                    const text = await response.text();
+                    resultData = { message: text || '訂單已成功送出！' };
+                }
+
+                // 判斷 HTTP 狀態碼與回傳的 status 欄位
+                if (!response.ok || resultData.status === 'error') {
+                    throw new Error(resultData.message || `伺服器回應錯誤 (狀態碼: ${response.status})`);
+                }
+
+                // 成功處理：讀取後端回傳訊息並顯示
+                const successMessage = resultData.message || '訂單已成功送出！我們將盡快為您處理。';
+                showAlert('success', '訂單建立成功', successMessage);
+
+                // 清空購物車與表單
+                clearCart();
+                this.reset();
+
+            } catch (error) {
+                console.error('訂單送出失敗:', error);
+                showAlert('error', '訂單送出失敗', `無法連接至自動化系統或處理發生異常：${error.message}（請確認本地 n8n Webhook 處於監聽狀態且已設定 CORS）`);
+            } finally {
+                // 恢復按鈕狀態
+                setSubmitLoading(false);
+            }
+        });
+
+        function setSubmitLoading(isLoading) {
+            const btn = document.getElementById('submit-btn');
+            const icon = document.getElementById('submit-icon');
+            const text = document.getElementById('submit-text');
+
+            btn.disabled = isLoading;
+            if (isLoading) {
+                icon.className = 'fa-solid fa-circle-notch fa-spin';
+                text.textContent = '訂單處理中，請稍候...';
+            } else {
+                icon.className = 'fa-solid fa-paper-plane';
+                text.textContent = '確認送出訂單';
+            }
+        }
+
+        // ==========================================
+        // 6. Alert 提示視窗控制
+        // ==========================================
+        function showAlert(type, title, message) {
+            const container = document.getElementById('alert-container');
+            const box = document.getElementById('alert-box');
+            const icon = document.getElementById('alert-icon');
+            const titleEl = document.getElementById('alert-title');
+            const messageEl = document.getElementById('alert-message');
+
+            // 重置樣式
+            box.className = 'p-4 rounded-xl border flex items-start justify-between shadow-sm transition-all duration-300';
+            
+            if (type === 'success') {
+                box.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-800');
+                icon.className = 'fa-solid fa-circle-check text-emerald-500 text-xl mt-0.5';
+            } else {
+                box.classList.add('bg-rose-50', 'border-rose-200', 'text-rose-800');
+                icon.className = 'fa-solid fa-circle-exclamation text-rose-500 text-xl mt-0.5';
+            }
+
+            titleEl.textContent = title;
+            messageEl.textContent = message;
+            container.classList.remove('hidden');
+
+            // 自動滾動到頁面頂部讓使用者看到提示
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function hideAlert() {
+            document.getElementById('alert-container').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
